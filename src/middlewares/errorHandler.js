@@ -76,14 +76,19 @@ export function errorHandler (err, req, res, _next) {
     });
   }
 
-  // 6. JSON malformado en el body: body-parser marca el error con un status.
-  //    Sin este caso volvería a salir como 500 y el cliente perdería el 400
-  //    que merece una petición mal formada.
-  if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
-    return res.status(400).json({
+  // 6. Errores del middleware que interpreta el cuerpo (body-parser).
+  //    Estos ya traen su código HTTP correcto en `err.status`, y respetarlo es
+  //    lo que evita que un JSON malformado acabe como 500 en vez de 400, o que
+  //    un body demasiado grande acabe como 500 en vez de 413. Sin esta rama,
+  //    el 500 se convertiría en la respuesta por defecto y el cliente perdería
+  //    la información de qué corregir.
+  if (typeof err?.type === 'string' && err.type.startsWith('entity.')) {
+    const status = err.status || err.statusCode || 400;
+
+    return res.status(status).json({
       success: false,
-      error: 'Bad Request',
-      message: 'El cuerpo de la petición no es un JSON válido',
+      error: nombreError(status),
+      message: mensajeBodyParser(status),
     });
   }
 
@@ -124,6 +129,23 @@ function mensajeUnicidad (err) {
 }
 
 /**
+ * Traduce los errores del middleware de cuerpo a un mensaje útil.
+ *
+ * @param {number} status Código HTTP que body-parser ya asignó
+ * @returns {string} Mensaje en español
+ */
+function mensajeBodyParser (status) {
+  const mensajes = {
+    400: 'El cuerpo de la petición no es un JSON válido',
+    411: 'La petición debe incluir un cuerpo',
+    413: 'El cuerpo de la petición supera el límite de 100 KB',
+    415: 'La cabecera Content-Type debe ser application/json',
+  };
+
+  return mensajes[status] ?? 'No se pudo interpretar el cuerpo de la petición';
+}
+
+/**
  * Devuelve el nombre canónico del código de estado HTTP, para que el cliente
  * no tenga que recordarlo.
  *
@@ -135,6 +157,8 @@ function nombreError (status) {
     400: 'Bad Request',
     404: 'Not Found',
     409: 'Conflict',
+    413: 'Payload Too Large',
+    415: 'Unsupported Media Type',
     500: 'Internal Server Error',
   };
   return nombres[status] ?? 'Error';

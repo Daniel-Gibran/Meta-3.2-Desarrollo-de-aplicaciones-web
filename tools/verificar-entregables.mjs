@@ -18,6 +18,15 @@ async function req (m, u, body) {
 const ck = (n, c, x = '') => { if (c) { ok++; } else { fail++; console.log(`  FALLA ${n} ${x}`); } };
 const sec = (t) => console.log(`\n--- ${t}`);
 
+// Cuerpo sin pasar por JSON.stringify: necesario para probar el JSON malformado
+// y el body sobredimensionado, que por definición no se pueden enviar como objeto.
+async function raw (m, u, cuerpo, ctype = 'application/json') {
+  const r = await fetch(B + u, { method: m, headers: { 'Content-Type': ctype }, body: cuerpo });
+  const t = await r.text();
+  let b; try { b = JSON.parse(t); } catch { b = t; }
+  return { status: r.status, body: b, raw: t };
+}
+
 const J = (n, rol, e = {}) => ({ nickname: n, nombre_real: `Real ${n}`, pais: 'Mexico', rol, estado: 'activo', ...e });
 
 // ============================================================ COLECCIÓN 0
@@ -289,6 +298,20 @@ r = await req('GET', '/jugadores/-5');
 ck('[20] id negativo -> 400', r.status === 400, r.status);
 r = await req('GET', '/jugadores/12abc');
 ck('[21] id con letras -> 400', r.status === 400, r.status);
+
+// JSON malformado y body sobredimensionado: el middleware que lee el cuerpo ya
+// asigna el código correcto (400 / 413) en err.status. El handler debe respetarlo;
+// si no, ambos caen en el 500 genérico, que no dice al cliente qué corregir.
+r = await raw('POST', '/jugadores', '{ "nickname": ');
+ck('[22] JSON malformado -> 400', r.status === 400, r.status);
+ck('[22b] mensaje sobre JSON', String(r.body.message).includes('JSON'), r.body.message);
+
+const sobredimensionado = JSON.stringify({ nickname: 'A'.repeat(120 * 1024), rol: 'Top' });
+ck('[23-pre] el cuerpo supera 100 KB', sobredimensionado.length > 100 * 1024, sobredimensionado.length);
+r = await raw('POST', '/jugadores', sobredimensionado);
+ck('[23] cuerpo > 100 KB -> 413', r.status === 413, r.status);
+ck('[23b] mensaje sobre el límite', String(r.body.message).includes('100 KB'), r.body.message);
+ck('[23c] NO es 500', r.status !== 500, r.status);
 
 console.log(`\n================  OK: ${ok}   FALLAS: ${fail}  ================\n`);
 process.exit(fail === 0 ? 0 : 1);

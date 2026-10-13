@@ -364,3 +364,40 @@ Accept: application/json
         client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
     });
 %}
+
+###
+
+### ===========================================================================
+### ERRORES DEL MIDDLEWARE QUE LEE EL CUERPO
+### body-parser ya asigna el codigo HTTP correcto en err.status. El handler
+### debe respetarlo en vez de convertirlo todo en 500: un 500 no le dice al
+### cliente que corregir.
+### ===========================================================================
+
+### [22] JSON malformado  ->  400, NO 500
+### El cuerpo esta deliberadamente incompleto.
+POST {{baseUrl}}/jugadores
+Content-Type: application/json
+
+{ "nickname": 
+
+> {%
+    client.test("[22] Un JSON malformado responde 400, no 500", function () {
+        client.assert(response.status === 400,
+            "Esperaba 400, recibí " + response.status +
+            " (si recibes 500, el middleware no esta respetando err.status)");
+    });
+    client.test("[22b] El mensaje explica el problema", function () {
+        client.assert(response.body.message.indexOf("JSON") !== -1,
+            "Esperaba un mensaje sobre el JSON, recibí: " + response.body.message);
+    });
+%}
+
+###
+
+### [23] Cuerpo mayor a 100 KB  ->  413, NO 500
+### NO se incluye aqui a proposito: necesitaria pegar mas de 100 000 caracteres
+### de texto literal en este archivo, lo que lo haria ilegible. El mismo caso
+### se verifica en tools/verificar-entregables.mjs, que genera el cuerpo de
+### forma programatica. Ejecutalo con `npm test`.
+### El limite de 100 KB esta documentado en openapi.yaml.

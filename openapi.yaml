@@ -172,6 +172,8 @@ paths:
           $ref: '#/components/responses/ErrorPeticionInvalida'
         '409':
           $ref: '#/components/responses/NicknameDuplicado'
+        '413':
+          $ref: '#/components/responses/CuerpoDemasiadoGrande'
         '500':
           $ref: '#/components/responses/ErrorInterno'
 
@@ -236,6 +238,8 @@ paths:
           $ref: '#/components/responses/JugadorNoEncontrado'
         '409':
           $ref: '#/components/responses/NicknameDuplicado'
+        '413':
+          $ref: '#/components/responses/CuerpoDemasiadoGrande'
         '500':
           $ref: '#/components/responses/ErrorInterno'
 
@@ -346,6 +350,8 @@ paths:
                   data: { $ref: '#/components/schemas/Roster' }
         '400':
           $ref: '#/components/responses/ErrorPeticionInvalida'
+        '413':
+          $ref: '#/components/responses/CuerpoDemasiadoGrande'
         '500':
           $ref: '#/components/responses/ErrorInterno'
 
@@ -406,6 +412,8 @@ paths:
           $ref: '#/components/responses/ErrorPeticionInvalida'
         '404':
           $ref: '#/components/responses/RosterNoEncontrado'
+        '413':
+          $ref: '#/components/responses/CuerpoDemasiadoGrande'
         '500':
           $ref: '#/components/responses/ErrorInterno'
 
@@ -500,6 +508,8 @@ paths:
           $ref: '#/components/responses/RosterOJugadorNoEncontrado'
         '409':
           $ref: '#/components/responses/ConflictoRoster'
+        '413':
+          $ref: '#/components/responses/CuerpoDemasiadoGrande'
         '500':
           $ref: '#/components/responses/ErrorInterno'
 
@@ -546,6 +556,8 @@ paths:
           $ref: '#/components/responses/AsignacionNoEncontrada'
         '409':
           $ref: '#/components/responses/ConflictoRoster'
+        '413':
+          $ref: '#/components/responses/CuerpoDemasiadoGrande'
         '500':
           $ref: '#/components/responses/ErrorInterno'
 
@@ -902,6 +914,18 @@ components:
             message: Los datos del jugador no son válidos
             details:
               nickname: El nickname es obligatorio
+
+    CuerpoDemasiadoGrande:
+      description: |
+        `413 Payload Too Large`. El cuerpo supera el límite de 100 KB impuesto
+        por `express.json()`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Payload Too Large
+            message: El cuerpo de la petición supera el límite de 100 KB
 
     JugadorNoEncontrado:
       description: "`404 Not Found`. El jugador no existe."

@@ -311,7 +311,13 @@ asignaciones. Los jugadores nunca se borran en cascada.
 | `400 Bad Request` | Campo obligatorio faltante, valor fuera del catálogo, id no numérico, filtro inválido, JSON malformado |
 | `404 Not Found` | El jugador, roster o asignación no existe; ruta no definida |
 | `409 Conflict` | RN-01, RN-02, RN-03, jugador ya asignado, jugador con asignaciones al borrarse |
+| `413 Payload Too Large` | El cuerpo supera el límite de 100 KB de `express.json()` |
 | `500 Internal Server Error` | Fallo no previsto. El detalle se registra en consola y no se filtra al cliente |
+
+El `500` es la red de seguridad, no una respuesta habitual: los errores que el
+servidor ya sabe clasificar (JSON malformado, cuerpo enorme, unicidad, claves
+foráneas) nunca llegan ahí. Un `500` en estas rutas significa un fallo no
+previsto, y por eso el detalle completo se queda en la consola del servidor.
 
 ### Por qué `400` y no `404` para un id mal formado
 
@@ -413,7 +419,7 @@ Las pruebas están en `test/` como colecciones de **REST Client** para VS Code.
 | `01-jugadores.http` | RF-01 a RF-06, y RN-01 |
 | `02-rosters.http` | RF-07 a RF-11, y RN-05 |
 | `03-asignaciones.http` | RF-12, RF-13, y RN-02, RN-03, RN-04 |
-| `04-auxiliares.http` | Catálogos, health check, reemplazo total, casos límite |
+| `04-auxiliares.http` | Catálogos, health check, reemplazo total, casos límite, errores del cuerpo de la petición |
 
 ### Cómo ejecutarlas
 
@@ -427,6 +433,11 @@ Cada petición lleva una aserción `client.test()` que reporta `PASSED` o
 `FAILED` en el panel de salida. Las aserciones comprueban **el código de estado
 y el contenido**, no solo que la llamada no falle.
 
+> El caso de `413` (cuerpo de más de 100 KB) es el único que no está en la
+> colección: necesitaría más de 100 000 caracteres literales pegados en el
+> archivo. Se verifica en `tools/verificar-entregables.mjs`, que genera ese
+> cuerpo de forma programática, y se ejecuta con `npm test`.
+
 > Las colecciones asumen la base recién sembrada. Para volver a ese estado:
 > `npm run db:reset`
 
@@ -438,11 +449,11 @@ del editor:
 ```bash
 npm run db:reset      # base en estado limpio
 npm run dev           # en otra terminal
-npm test              # 130 aserciones
+npm test              # 136 aserciones
 ```
 
 ```
-================  OK: 130   FALLAS: 0  ================
+================  OK: 136   FALLAS: 0  ================
 ```
 
 ```bash
@@ -583,6 +594,7 @@ Anotados porque explican por qué el código es como es.
 | Campos opcionales rechazados al no venir | La validación trataba la ausencia igual que el texto vacío | Solo se rechaza el campo si viene presente y vacío |
 | `/docs/openapi.yaml` devolvía HTML | `swaggerUi.serve` tiene una ruta comodín que responde primero | La ruta del YAML se registra antes de montar Swagger UI |
 | Seeders con dos titulares del mismo rol | Los datos de prueba violaban RN-03 desde el arranque | Los titulares del seed cubren los cinco roles distintos |
+| Un cuerpo de más de 100 KB devolvía `500` | El `errorHandler` solo reconocía `entity.parse.failed`, así que el `PayloadTooLargeError` caía en la rama genérica | Se reconoce cualquier `err.type` que empiece por `entity.` y se respeta el `err.status` que `body-parser` ya asignó, de modo que responde `413` |
 
 ---
 
