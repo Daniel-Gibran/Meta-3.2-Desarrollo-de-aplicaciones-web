@@ -1,0 +1,8 @@
+# Normaliza los finales de línea en el repositorio.
+# Windows usa CRLF y Linux LF; sin esto Git marca todo el proyecto como
+# modificado al cambiar de sistema operativo.
+* text=auto eol=lf
+
+# Archivos que deben conservar CRLF por convención de Windows.
+*.bat text eol=crlf
+*.cmd text eol=crlf

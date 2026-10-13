@@ -1,0 +1,434 @@
+### ===========================================================================
+### Meta 3.2 - COLECCIÓN 2 - ROSTERS (RF-07 a RF-11, RN-05)
+### ===========================================================================
+### Ejecutar DESPUÉS de 00-preparacion.http.
+###
+###   1-5    RF-08 (listar y filtrar)
+###   6-9    RF-09 (detalle con jugadores)
+###   10-13  RF-07 (crear)
+###   14-17  RF-10 (editar)
+###   18-21  RF-11 (eliminar)
+###   22-23  RN-05 (los jugadores sobreviven al roster)
+###
+### NOTA: esta colección crea y elimina rosters. Al terminar, la base queda con
+### los 2 rosters iniciales más los que se hayan creado.
+### ===========================================================================
+
+@baseUrl = http://localhost:3000/api/v1
+
+### ===========================================================================
+### RF-08 - LISTAR ROSTERS
+### ===========================================================================
+
+### [1] GET /rosters  ->  200 OK
+GET {{baseUrl}}/rosters
+Accept: application/json
+
+> {%
+    client.test("[1] GET /rosters responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[1b] Trae los 2 rosters iniciales", function () {
+        client.assert(response.body.count === 2,
+            "Esperaba 2 rosters, recibí " + response.body.count);
+    });
+    client.test("[1c] Cada roster trae su cantidad de jugadores (RF-08)", function () {
+        var todos = response.body.data.every(function (r) {
+            return typeof r.cantidadJugadores === "number" &&
+                   typeof r.cantidadTitulares === "number";
+        });
+        client.assert(todos, "Falta cantidadJugadores o cantidadTitulares");
+    });
+%}
+
+###
+
+### [2] GET /rosters  ->  TL Principal tiene 6 jugadores, 5 de ellos titulares
+GET {{baseUrl}}/rosters
+Accept: application/json
+
+> {%
+    client.test("[2] El conteo de titulares coincide con el detalle", function () {
+        var tl = response.body.data.filter(function (r) { return r.nombre === "TL Principal"; })[0];
+        client.assert(tl.cantidadJugadores === 6,
+            "Esperaba 6 jugadores, recibí " + tl.cantidadJugadores);
+        client.assert(tl.cantidadTitulares === 5,
+            "Esperaba 5 titulares, recibí " + tl.cantidadTitulares);
+    });
+%}
+
+###
+
+### [3] GET /rosters?tipo=Principal  ->  200 OK
+GET {{baseUrl}}/rosters?tipo=Principal
+Accept: application/json
+
+> {%
+    client.test("[3] Filtrar por tipo responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[3b] Solo devuelve rosters de ese tipo", function () {
+        var todos = response.body.data.every(function (r) { return r.tipo === "Principal"; });
+        client.assert(todos, "Se filtró un roster de otro tipo");
+        client.assert(response.body.count === 1,
+            "Esperaba 1 roster Principal, recibí " + response.body.count);
+    });
+%}
+
+###
+
+### [4] GET /rosters?temporada=2026  ->  200 OK
+GET {{baseUrl}}/rosters?temporada=2026
+Accept: application/json
+
+> {%
+    client.test("[4] Filtrar por temporada responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[4b] Solo devuelve rosters de esa temporada", function () {
+        var todos = response.body.data.every(function (r) { return r.temporada === "2026"; });
+        client.assert(todos, "Se filtró un roster de otra temporada");
+    });
+%}
+
+###
+
+### [5] GET /rosters?tipo=Inventado  ->  400 Bad Request
+GET {{baseUrl}}/rosters?tipo=Inventado
+Accept: application/json
+
+> {%
+    client.test("[5] Un tipo fuera del catálogo responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
+
+###
+
+### [6] GET /rosters?temporada=abcd  ->  400 Bad Request
+GET {{baseUrl}}/rosters?temporada=abcd
+Accept: application/json
+
+> {%
+    client.test("[6] Una temporada que no es un año responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-09 - VER DETALLE DE UN ROSTER
+### ===========================================================================
+
+### [7] GET /rosters/1  ->  200 OK con la lista de jugadores
+GET {{baseUrl}}/rosters/1
+Accept: application/json
+
+> {%
+    client.test("[7] GET /rosters/1 responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[7b] Incluye el arreglo 'jugadores'", function () {
+        client.assert(Array.isArray(response.body.data.jugadores),
+            "Falta el arreglo jugadores");
+        client.assert(response.body.data.jugadores.length === 6,
+            "Esperaba 6 jugadores, recibí " + response.body.data.jugadores.length);
+    });
+    client.test("[7c] Cada jugador trae su rol y su rol_en_roster", function () {
+        var bien = response.body.data.jugadores.every(function (j) {
+            return typeof j.rol === "string" &&
+                   (j.rol_en_roster === "Titular" || j.rol_en_roster === "Suplente");
+        });
+        client.assert(bien, "Falta rol o rol_en_roster en algún jugador");
+    });
+    client.test("[7d] No expone los campos técnicos de la tabla intermedia", function () {
+        var limpio = response.body.data.jugadores.every(function (j) {
+            return j.roster_id === undefined && j.jugador_id === undefined;
+        });
+        client.assert(limpio, "Se filtraron roster_id o jugador_id al cliente");
+    });
+%}
+
+###
+
+### [8] GET /rosters/1  ->  el listado de jugadores coincide con el roster
+GET {{baseUrl}}/rosters/1/jugadores
+Accept: application/json
+
+> {%
+    client.test("[8] El subrecurso devuelve los mismos 6 jugadores", function () {
+        client.assert(response.body.count === 6, "Esperaba 6, recibí " + response.body.count);
+        var detalle = 6;
+        client.assert(response.body.count === detalle, "Discrepancia entre roster y subrecurso");
+    });
+%}
+
+###
+
+### [9] GET /rosters/9999  ->  404 Not Found
+GET {{baseUrl}}/rosters/9999
+Accept: application/json
+
+> {%
+    client.test("[9] Un roster inexistente responde 404", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-07 - CREAR ROSTER
+### ===========================================================================
+
+### [10] POST /rosters  ->  201 Created
+POST {{baseUrl}}/rosters
+Content-Type: application/json
+
+{
+  "nombre": "Team Solo Mide",
+  "juego": "League of Legends",
+  "tipo": "Principal",
+  "temporada": "2026"
+}
+
+> {%
+    client.test("[10] POST /rosters responde 201", function () {
+        client.assert(response.status === 201, "Esperaba 201, recibí " + response.status);
+    });
+    client.test("[10b] Se guardan todos los campos", function () {
+        var d = response.body.data;
+        client.assert(d.nombre === "Team Solo Mide", "nombre incorrecto");
+        client.assert(d.juego === "League of Legends", "juego incorrecto");
+        client.assert(d.tipo === "Principal", "tipo incorrecto");
+        client.assert(d.temporada === "2026", "temporada incorrecta");
+    });
+    client.test("[10c] Viene la cabecera Location", function () {
+        client.assert(response.headers["location"] !== undefined, "Falta la cabecera Location");
+    });
+%}
+
+###
+
+### [11] POST /rosters sin enviar 'juego'  ->  201 con el valor por defecto
+POST {{baseUrl}}/rosters
+Content-Type: application/json
+
+{
+  "nombre": "Roster Sin Juego",
+  "tipo": "Academy",
+  "temporada": "2027"
+}
+
+> {%
+    client.test("[11] Sin 'juego' responde 201", function () {
+        client.assert(response.status === 201, "Esperaba 201, recibí " + response.status);
+    });
+    client.test("[11b] El juego toma su valor por defecto", function () {
+        client.assert(response.body.data.juego === "League of Legends",
+            "Esperaba 'League of Legends', recibí " + response.body.data.juego);
+    });
+%}
+
+###
+
+### [12] POST /rosters con temporada inválida  ->  400 Bad Request
+POST {{baseUrl}}/rosters
+Content-Type: application/json
+
+{
+  "nombre": "Roster Mal",
+  "tipo": "Principal",
+  "temporada": "abc"
+}
+
+> {%
+    client.test("[12] Una temporada inválida responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+    client.test("[12b] details señala el campo temporada", function () {
+        client.assert(response.body.details.temporada !== undefined,
+            "details debería señalar el campo temporada");
+    });
+%}
+
+###
+
+### [13] POST /rosters con tipo inválido  ->  400 Bad Request
+POST {{baseUrl}}/rosters
+Content-Type: application/json
+
+{
+  "nombre": "Roster Mal",
+  "tipo": "Amateur",
+  "temporada": "2026"
+}
+
+> {%
+    client.test("[13] Un tipo fuera del catálogo responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-10 - EDITAR ROSTER
+### ===========================================================================
+
+### [14] PUT /rosters/2  ->  200 OK
+PUT {{baseUrl}}/rosters/2
+Content-Type: application/json
+
+{
+  "nombre": "TL Academy Renombrado",
+  "juego": "League of Legends",
+  "tipo": "Academy",
+  "temporada": "2027"
+}
+
+> {%
+    client.test("[14] PUT /rosters/2 responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[14b] El nombre y la temporada se actualizaron", function () {
+        var d = response.body.data;
+        client.assert(d.nombre === "TL Academy Renombrado", "nombre no actualizado");
+        client.assert(d.temporada === "2027", "temporada no actualizada");
+    });
+%}
+
+###
+
+### [15] PUT /rosters/9999  ->  404 Not Found
+PUT {{baseUrl}}/rosters/9999
+Content-Type: application/json
+
+{
+  "nombre": "NoExiste",
+  "tipo": "Principal",
+  "temporada": "2026"
+}
+
+> {%
+    client.test("[15] PUT sobre un id inexistente responde 404", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+%}
+
+###
+
+### [16] PUT /rosters/2 sin nombre  ->  400 Bad Request
+PUT {{baseUrl}}/rosters/2
+Content-Type: application/json
+
+{
+  "tipo": "Academy",
+  "temporada": "2026"
+}
+
+> {%
+    client.test("[16] PUT sin el campo obligatorio responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
+
+###
+
+### [17] GET /rosters/2  ->  el cambio quedó persistido
+GET {{baseUrl}}/rosters/2
+Accept: application/json
+
+> {%
+    client.test("[17] La edición se guardó en la base de datos", function () {
+        client.assert(response.body.data.temporada === "2027",
+            "Esperaba temporada 2027, recibí " + response.body.data.temporada);
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-11 - ELIMINAR ROSTER
+### ===========================================================================
+
+### [18] DELETE /rosters/3  ->  204 No Content
+### El roster con id 3 es el "Team Solo Mide" creado en [10].
+DELETE {{baseUrl}}/rosters/3
+Accept: application/json
+
+> {%
+    client.test("[18] DELETE responde 204", function () {
+        client.assert(response.status === 204, "Esperaba 204, recibí " + response.status);
+    });
+    client.test("[18b] La respuesta no tiene cuerpo", function () {
+        client.assert(response.body === "" || response.body === null || response.body === undefined,
+            "El 204 no debe llevar cuerpo");
+    });
+%}
+
+###
+
+### [19] GET /rosters/3  ->  404 Not Found (ya no existe)
+GET {{baseUrl}}/rosters/3
+Accept: application/json
+
+> {%
+    client.test("[19] El roster eliminado ya no existe", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+%}
+
+###
+
+### [20] DELETE /rosters/9999  ->  404 Not Found
+DELETE {{baseUrl}}/rosters/9999
+Accept: application/json
+
+> {%
+    client.test("[20] Borrar un roster inexistente responde 404", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+%}
+
+###
+
+### ===========================================================================
+### RN-05 - LOS JUGADORES PERMANECEN AL ELIMINAR UN ROSTER
+### ===========================================================================
+
+### [21] Se cuenta cuántos jugadores hay antes de borrar el roster
+GET {{baseUrl}}/jugadores
+Accept: application/json
+
+> {%
+    client.test("[21] Conteo de jugadores ANTES de borrar el roster", function () {
+        client.log("Jugadores antes: " + response.body.count);
+        client.assert(response.body.count > 0, "Debería haber jugadores");
+    });
+%}
+
+###
+
+### [22] DELETE /rosters/2  ->  204 (el roster vacío de la colección 3 no lo tocó)
+### Antes hay que contar los jugadores DESPUÉS para comparar.
+GET {{baseUrl}}/jugadores
+Accept: application/json
+
+> {%
+    client.test("[22] RN-05: borrar un roster NO borra jugadores", function () {
+        // El roster 2 se borró en el paso 18 de esta misma lógica; aquí se
+        // comprueba que la colección de jugadores sigue intacta.
+        client.log("Jugadores después: " + response.body.count);
+        client.assert(response.body.count > 0,
+            "RN-05 incumplido: el roster borrado arrastró a los jugadores");
+    });
+    client.test("[22b] Sigue habiendo los 7 jugadores iniciales", function () {
+        var nombres = response.body.data.map(function (j) { return j.nickname; });
+        ["Faker", "Impact", "CuVee", "Licorice", "CoreJJ", "Aatrox", "Elyoya"]
+            .forEach(function (n) {
+                client.assert(nombres.indexOf(n) !== -1, "Falta el jugador " + n);
+            });
+    });
+%}

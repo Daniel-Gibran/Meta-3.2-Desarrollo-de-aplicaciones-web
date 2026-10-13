@@ -1,0 +1,532 @@
+### ===========================================================================
+### Meta 3.2 - COLECCIÓN 1 - JUGADORES (RF-01 a RF-06, RN-01)
+### ===========================================================================
+### Ejecutar DESPUÉS de 00-preparacion.http, con el servidor corriendo.
+###
+### Los escenarios se numeran de forma global en toda la colección:
+###   1-6    RF-01, RF-02 (crear y listar)
+###   7-10   RF-03 (detalle)
+###   11-14  RF-04 (actualizar)
+###   15-17  RF-05 (eliminar)
+###   18-23  RF-06 (buscar y filtrar)
+###   24-26  RN-01 (nickname único)
+###
+### NOTA: los escenarios 11 y 12 borran al jugador creado en [1]. Si se ejecuta
+### la colección dos veces sin volver a preparar la base, el [12] seguirá
+### dando 404, que es lo esperado.
+### ===========================================================================
+
+@baseUrl = http://localhost:3000/api/v1
+
+# Id que devuelve la creación del escenario [1]. REST Client lo guarda con
+# client.global.set() y aquí se reutiliza, para que la colección no dependa de
+# un número mágico que cambiaría si los seeders tuvieran más datos.
+@jugadorCreado =
+
+### ===========================================================================
+### RF-01 - CREAR JUGADOR
+### ===========================================================================
+
+### [1] POST /jugadores  ->  201 Created
+POST {{baseUrl}}/jugadores
+Content-Type: application/json
+
+{
+  "nickname": "Rekkles",
+  "nombre_real": "Martin Larsson",
+  "pais": "Suecia",
+  "rol": "ADC",
+  "estado": "activo"
+}
+
+> {%
+    client.test("[1] POST /jugadores responde 201", function () {
+        client.assert(response.status === 201, "Esperaba 201, recibí " + response.status);
+    });
+    client.test("[1b] Se crea con id autoincremental", function () {
+        var d = response.body.data;
+        client.assert(d.id > 7, "El id debe ser mayor que 7, recibí " + d.id);
+        client.global.set("jugadorCreado", d.id);
+        client.log("Jugador creado con id " + d.id);
+    });
+    client.test("[1c] Todos los campos se guardan bien", function () {
+        var d = response.body.data;
+        client.assert(d.nickname === "Rekkles", "nickname incorrecto");
+        client.assert(d.nombre_real === "Martin Larsson", "nombre_real incorrecto");
+        client.assert(d.pais === "Suecia", "pais incorrecto");
+        client.assert(d.rol === "ADC", "rol incorrecto");
+        client.assert(d.estado === "activo", "estado incorrecto");
+    });
+    client.test("[1d] Viene la cabecera Location", function () {
+        client.assert(response.headers["location"] !== undefined,
+            "Falta la cabecera Location");
+    });
+%}
+
+###
+
+### [2] POST /jugadores con el mínimo de campos  ->  201 Created
+### El estado por defecto es 'activo'.
+POST {{baseUrl}}/jugadores
+Content-Type: application/json
+
+{
+  "nickname": "Santorin",
+  "rol": "Support"
+}
+
+> {%
+    client.test("[2] POST con solo nickname y rol responde 201", function () {
+        client.assert(response.status === 201, "Esperaba 201, recibí " + response.status);
+    });
+    client.test("[2b] El estado por defecto es 'activo'", function () {
+        client.assert(response.body.data.estado === "activo",
+            "Esperaba 'activo', recibí " + response.body.data.estado);
+    });
+    client.test("[2c] Los campos no enviados quedan en null", function () {
+        var d = response.body.data;
+        client.assert(d.nombre_real === null, "nombre_real debía ser null");
+        client.assert(d.pais === null, "pais debía ser null");
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-02 - LISTAR JUGADORES
+### ===========================================================================
+
+### [3] GET /jugadores  ->  200 OK
+GET {{baseUrl}}/jugadores
+Accept: application/json
+
+> {%
+    client.test("[3] GET /jugadores responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[3b] Trae success y count", function () {
+        client.assert(response.body.success === true, "success debe ser true");
+        client.assert(typeof response.body.count === "number", "count debe ser numérico");
+        client.assert(response.body.count === 9,
+            "Esperaba 9 jugadores (7 iniciales + 2 creados), recibí " + response.body.count);
+    });
+    client.test("[3c] Cada elemento tiene la forma del esquema", function () {
+        var j = response.body.data[0];
+        client.assert(typeof j.id === "number", "falta id");
+        client.assert(typeof j.nickname === "string", "falta nickname");
+        client.assert(typeof j.rol === "string", "falta rol");
+        client.assert(typeof j.estado === "string", "falta estado");
+        client.assert(j.createdAt === undefined, "createdAt no debe exponerse");
+    });
+%}
+
+###
+
+### [4] GET /jugadores  ->  la respuesta es un arreglo plano con los campos
+###     del modelo, sin metadatos internos de Sequelize.
+GET {{baseUrl}}/jugadores/1
+Accept: application/json
+
+> {%
+    client.test("[4] La respuesta no filtra datos internos de Sequelize", function () {
+        var j = response.body.data;
+        client.assert(j.nickname === "Faker", "nickname incorrecto");
+        client.assert(j.updatedAt === undefined, "updatedAt no debe exponerse");
+        client.assert(j.dataValues === undefined, "dataValues no debe exponerse");
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-03 - VER DETALLE DE UN JUGADOR
+### ===========================================================================
+
+### [5] GET /jugadores/1  ->  200 OK
+GET {{baseUrl}}/jugadores/1
+Accept: application/json
+
+> {%
+    client.test("[5] GET /jugadores/1 responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[5b] Devuelve el jugador correcto", function () {
+        var d = response.body.data;
+        client.assert(d.id === 1, "Esperaba id 1, recibí " + d.id);
+        client.assert(d.nickname === "Faker", "Esperaba Faker");
+    });
+%}
+
+###
+
+### [6] GET /jugadores/9999  ->  404 Not Found
+GET {{baseUrl}}/jugadores/9999
+Accept: application/json
+
+> {%
+    client.test("[6] Un id inexistente responde 404", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+    client.test("[6b] El mensaje explica el motivo", function () {
+        client.assert(response.body.success === false, "success debe ser false");
+        client.assert(response.body.message.indexOf("9999") !== -1,
+            "El mensaje debe mencionar el id, recibí: " + response.body.message);
+    });
+%}
+
+###
+
+### [7] GET /jugadores/abc  ->  400 Bad Request
+GET {{baseUrl}}/jugadores/abc
+Accept: application/json
+
+> {%
+    client.test("[7] Un id no numérico responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+    client.test("[7b] No se confunde con un 404", function () {
+        client.assert(response.status !== 404,
+            "Un id mal formado no debe devolverse como 'no encontrado'");
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-04 - EDITAR JUGADOR
+### El PUT es un reemplazo total: el cuerpo trae todos los campos.
+### ===========================================================================
+
+### [8] PUT /jugadores/2  ->  200 OK
+PUT {{baseUrl}}/jugadores/2
+Content-Type: application/json
+
+{
+  "nickname": "Impact",
+  "nombre_real": "Song Eui-jin",
+  "pais": "Corea del Sur",
+  "rol": "Support",
+  "estado": "inactivo"
+}
+
+> {%
+    client.test("[8] PUT /jugadores/2 responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[8b] El estado se actualizó", function () {
+        client.assert(response.body.data.estado === "inactivo",
+            "Esperaba 'inactivo', recibí " + response.body.data.estado);
+    });
+%}
+
+###
+
+### [9] PUT /jugadores/9999  ->  404 Not Found
+PUT {{baseUrl}}/jugadores/9999
+Content-Type: application/json
+
+{
+  "nickname": "NoExiste",
+  "rol": "Top"
+}
+
+> {%
+    client.test("[9] PUT sobre un id inexistente responde 404", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+%}
+
+###
+
+### [10] PUT /jugadores/2 sin nickname  ->  400 Bad Request
+### El PUT es reemplazo total: nickname y rol son obligatorios.
+PUT {{baseUrl}}/jugadores/2
+Content-Type: application/json
+
+{
+  "rol": "Support",
+  "estado": "activo"
+}
+
+> {%
+    client.test("[10] PUT sin nickname responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+    client.test("[10b] details señala el campo faltante", function () {
+        client.assert(response.body.details.nickname !== undefined,
+            "details debería señalar el campo nickname");
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-05 - ELIMINAR JUGADOR
+### ===========================================================================
+
+### [11] DELETE /jugadores/{{jugadorCreado}}  ->  204 No Content
+DELETE {{baseUrl}}/jugadores/{{jugadorCreado}}
+Accept: application/json
+
+> {%
+    client.test("[11] DELETE responde 204", function () {
+        client.assert(response.status === 204, "Esperaba 204, recibí " + response.status);
+    });
+    client.test("[11b] La respuesta no tiene cuerpo", function () {
+        client.assert(response.body === "" || response.body === null || response.body === undefined,
+            "El 204 no debe llevar cuerpo, recibí: " + JSON.stringify(response.body));
+    });
+%}
+
+###
+
+### [12] DELETE /jugadores/{{jugadorCreado}} otra vez  ->  404 Not Found
+DELETE {{baseUrl}}/jugadores/{{jugadorCreado}}
+Accept: application/json
+
+> {%
+    client.test("[12] Borrar dos veces el mismo jugador responde 404", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+%}
+
+###
+
+### ===========================================================================
+### RF-06 - BUSCAR Y FILTRAR
+### ===========================================================================
+
+### [13] GET /jugadores?rol=Mid  ->  200 OK
+GET {{baseUrl}}/jugadores?rol=Mid
+Accept: application/json
+
+> {%
+    client.test("[13] Filtrar por rol responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[13b] Solo devuelve jugadores con ese rol", function () {
+        var todosMid = response.body.data.every(function (j) { return j.rol === "Mid"; });
+        client.assert(todosMid, "Se filtró un jugador que no es Mid");
+        client.assert(response.body.count === 1,
+            "Esperaba 1 Mid (Faker), recibí " + response.body.count);
+    });
+%}
+
+###
+
+### [14] GET /jugadores?estado=inactivo  ->  200 OK
+GET {{baseUrl}}/jugadores?estado=inactivo
+Accept: application/json
+
+> {%
+    client.test("[14] Filtrar por estado responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[14b] Solo devuelve jugadores inactivos", function () {
+        var todos = response.body.data.every(function (j) { return j.estado === "inactivo"; });
+        client.assert(todos, "Se filtró un jugador activo");
+    });
+%}
+
+###
+
+### [15] GET /jugadores?search=lic  ->  200 OK
+### La búsqueda es parcial y no distingue mayúsculas.
+GET {{baseUrl}}/jugadores?search=lic
+Accept: application/json
+
+> {%
+    client.test("[15] Buscar por nickname responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[15b] Encuentra a Licorice con búsqueda parcial", function () {
+        client.assert(response.body.count === 1,
+            "Esperaba 1 resultado, recibí " + response.body.count);
+        client.assert(response.body.data[0].nickname === "Licorice",
+            "Esperaba Licorice, recibí " + response.body.data[0].nickname);
+    });
+%}
+
+###
+
+### [16] GET /jugadores?search=LIC  ->  200 OK (mayúsculas)
+GET {{baseUrl}}/jugadores?search=LIC
+Accept: application/json
+
+> {%
+    client.test("[16] La búsqueda ignora mayúsculas y minúsculas", function () {
+        client.assert(response.body.count === 1,
+            "Esperaba 1 resultado, recibí " + response.body.count);
+        client.assert(response.body.data[0].nickname === "Licorice",
+            "Esperaba Licorice, recibí " + response.body.data[0].nickname);
+    });
+%}
+
+###
+
+### [17] GET /jugadores?search=zzzz  ->  200 OK con lista vacía
+GET {{baseUrl}}/jugadores?search=zzzznoexiste
+Accept: application/json
+
+> {%
+    client.test("[17] Una búsqueda sin resultados devuelve 200 y lista vacía", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+        client.assert(response.body.count === 0,
+            "Esperaba count 0, recibí " + response.body.count);
+    });
+%}
+
+###
+
+### [18] GET /jugadores?rol=Capa  ->  400 Bad Request
+### Un valor fuera del catálogo es un error del cliente, no una lista vacía.
+GET {{baseUrl}}/jugadores?rol=Capa
+Accept: application/json
+
+> {%
+    client.test("[18] Un rol fuera del catálogo responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+    client.test("[18b] El mensaje indica los valores válidos", function () {
+        client.assert(response.body.message.indexOf("Mid") !== -1,
+            "El mensaje debe listar los roles válidos, recibí: " + response.body.message);
+    });
+%}
+
+###
+
+### [19] GET /jugadores?rol=Mid&estado=activo  ->  200 OK
+GET {{baseUrl}}/jugadores?rol=Mid&estado=activo
+Accept: application/json
+
+> {%
+    client.test("[19] Los filtros se combinan", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+        var ok = response.body.data.every(function (j) {
+            return j.rol === "Mid" && j.estado === "activo";
+        });
+        client.assert(ok, "Se filtró un jugador que no cumple ambos filtros");
+    });
+%}
+
+###
+
+### ===========================================================================
+### RN-01 - EL NICKNAME DEBE SER ÚNICO
+### ===========================================================================
+
+### [20] POST /jugadores con un nickname ya existente  ->  409 Conflict
+POST {{baseUrl}}/jugadores
+Content-Type: application/json
+
+{
+  "nickname": "Faker",
+  "nombre_real": "Impostor",
+  "pais": "Desconocido",
+  "rol": "Mid"
+}
+
+> {%
+    client.test("[20] RN-01: nickname duplicado responde 409", function () {
+        client.assert(response.status === 409, "Esperaba 409, recibí " + response.status);
+    });
+    client.test("[20b] El mensaje menciona el conflicto", function () {
+        client.assert(response.body.message.indexOf("nickname") !== -1,
+            "El mensaje debe mencionar el nickname, recibí: " + response.body.message);
+    });
+    client.test("[20c] details indica qué jugador lo ocupa", function () {
+        client.assert(response.body.details.jugador_id === 1,
+            "Esperaba jugador_id 1, recibí " + response.body.details.jugador_id);
+    });
+%}
+
+###
+
+### [21] POST /jugadores con un rol inválido  ->  400 Bad Request
+POST {{baseUrl}}/jugadores
+Content-Type: application/json
+
+{
+  "nickname": "RolInvalido",
+  "rol": "Capa"
+}
+
+> {%
+    client.test("[21] Un rol fuera del catálogo responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+    client.test("[21b] details señala el campo rol", function () {
+        client.assert(response.body.details.rol !== undefined,
+            "details debería señalar el campo rol");
+    });
+%}
+
+###
+
+### [22] POST /jugadores sin nickname ni rol  ->  400 Bad Request
+POST {{baseUrl}}/jugadores
+Content-Type: application/json
+
+{
+  "pais": "Mexico"
+}
+
+> {%
+    client.test("[22] Sin los campos obligatorios responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+    client.test("[22b] Reporta ambos campos faltantes", function () {
+        client.assert(response.body.details.nickname !== undefined, "falta nickname");
+        client.assert(response.body.details.rol !== undefined, "falta rol");
+    });
+%}
+
+###
+
+### [23] PUT /jugadores/3 con el nickname de otro jugador  ->  409 Conflict
+PUT {{baseUrl}}/jugadores/3
+Content-Type: application/json
+
+{
+  "nickname": "Faker",
+  "rol": "Jungle"
+}
+
+> {%
+    client.test("[23] RN-01 también se aplica en PUT", function () {
+        client.assert(response.status === 409, "Esperaba 409, recibí " + response.status);
+    });
+%}
+
+###
+
+### [24] PUT /jugadores/3 conservando su propio nickname  ->  200 OK
+### Un jugador no entra en conflicto consigo mismo.
+PUT {{baseUrl}}/jugadores/3
+Content-Type: application/json
+
+{
+  "nickname": "CuVee",
+  "nombre_real": "Jang Seon-hyeon",
+  "pais": "Corea del Sur",
+  "rol": "Jungle",
+  "estado": "activo"
+}
+
+> {%
+    client.test("[24] Mantener el mismo nickname responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+%}
+
+###
+
+### [25] GET /ruta/que/no/existe  ->  404 Not Found
+GET {{baseUrl}}/ruta-inexistente
+Accept: application/json
+
+> {%
+    client.test("[25] Una ruta no definida responde 404", function () {
+        client.assert(response.status === 404, "Esperaba 404, recibí " + response.status);
+    });
+%}

@@ -1,0 +1,1029 @@
+openapi: 3.0.3
+
+info:
+  title: API de Jugadores y Rosters
+  version: 1.0.0
+  description: |
+    API REST para gestionar perfiles de jugadores de eSports y armar rosters
+    para equipos. Construida con Node.js, Express, Sequelize y MySQL.
+
+    ## Autenticación
+
+    Esta API **no implementa autenticación**. El enunciado define dos roles
+    (Admin y Público) pero no especifica ningún endpoint de login ni exige
+    autorización, por lo que todos los endpoints son de acceso público.
+    La matriz de permisos documentada es la siguiente:
+
+    | Rol      | Permisos                                        |
+    |----------|-------------------------------------------------|
+    | Admin    | Crear, editar y eliminar jugadores y rosters    |
+    | Público  | Solo ver jugadores y rosters                    |
+
+    | Endpoint              | Público | Admin |
+    |-----------------------|---------|-------|
+    | `GET` (lecturas)      |   Sí    |  Sí   |
+    | `POST`                |   No    |  Sí   |
+    | `PUT`                 |   No    |  Sí   |
+    | `DELETE`              |   No    |  Sí   |
+
+    Si en el futuro se añade autenticación, cada operación de escritura
+    Passingía a requerir un rol Admin.
+
+    ## Reglas de negocio
+
+    | Regla | Descripción                                              | Respuesta |
+    |-------|----------------------------------------------------------|-----------|
+    | RN-01 | El `nickname` de un jugador debe ser único.              | `409`     |
+    | RN-02 | Un roster puede tener como máximo **5 titulares**.        | `409`     |
+    | RN-03 | No puede haber dos titulares con el mismo rol.           | `409`     |
+    | RN-04 | Un jugador puede estar en varios rosters.                | —         |
+    | RN-05 | Al eliminar un roster, los jugadores permanecen.         | —         |
+
+    ## Convenciones
+
+    * Base URL: `/api/v1`
+    * Formato: JSON en petición y respuesta
+    * `PUT` es un **reemplazo total**: el cuerpo debe incluir todos los campos
+      obligatorios.
+    * `DELETE` responde `204 No Content` sin cuerpo.
+    * Los errores usan siempre la forma `{ success, error, message }`, y los
+      errores de validación añaden `details`.
+  contact:
+    name: Daniel Gibran Alvarez Armienta
+    email: daniel.alvarez26@uabc.edu.mx
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: "Servidor local de desarrollo"
+
+tags:
+  - name: Jugadores
+    description: "Perfiles de jugadores (RF-01 a RF-06)"
+  - name: Rosters
+    description: "Plantillas de equipos (RF-07 a RF-11)"
+  - name: Asignaciones
+    description: "Jugadores dentro de un roster (RF-12, RF-13)"
+  - name: Auxiliares
+    description: "Catálogos válidos y health check"
+
+paths:
+
+  # ==========================================================================
+  # JUGADORES
+  # ==========================================================================
+  /api/v1/jugadores:
+    get:
+      tags: [Jugadores]
+      summary: Listar jugadores
+      description: |
+        RF-02 y RF-06. Devuelve todos los jugadores, opcionalmente filtrados.
+        Los tres filtros pueden combinarse entre sí.
+      operationId: listarJugadores
+      parameters:
+        - name: rol
+          in: query
+          description: Filtra por rol de juego. Debe pertenecer al catálogo.
+          required: false
+          schema:
+            type: string
+            enum: [Top, Jungle, Mid, ADC, Support]
+          example: Mid
+        - name: estado
+          in: query
+          description: Filtra por estado del jugador.
+          required: false
+          schema:
+            type: string
+            enum: [activo, inactivo]
+          example: activo
+        - name: search
+          in: query
+          description: |
+            Búsqueda parcial por nickname. No distingue mayúsculas de
+            minúsculas.
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          example: faker
+      responses:
+        '200':
+          description: Lista de jugadores.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  count: { type: integer, example: 2 }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Jugador' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    post:
+      tags: [Jugadores]
+      summary: Crear un jugador
+      description: |
+        RF-01. El `nickname` es obligatorio y único (RN-01). Si no se envía
+        `estado`, se registra como `activo`.
+      operationId: crearJugador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JugadorCreate' }
+            examples:
+              completo:
+                summary: Jugador completo
+                value:
+                  nickname: Faker
+                  nombre_real: Lee Sang-hyeok
+                  pais: Corea del Sur
+                  rol: Mid
+                  estado: activo
+              minimo:
+                summary: Solo lo obligatorio
+                value:
+                  nickname: NuevoJugador
+                  rol: Top
+      responses:
+        '201':
+          description: Jugador creado. Incluye la cabecera `Location`.
+          headers:
+            Location:
+              description: URL del recurso creado.
+              schema: { type: string }
+              example: /api/v1/jugadores/1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: Jugador creado exitosamente }
+                  data: { $ref: '#/components/schemas/Jugador' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '409':
+          $ref: '#/components/responses/NicknameDuplicado'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  /api/v1/jugadores/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdJugador'
+    get:
+      tags: [Jugadores]
+      summary: Obtener el detalle de un jugador
+      description: RF-03. Devuelve todos los datos del jugador.
+      operationId: obtenerJugador
+      responses:
+        '200':
+          description: Detalle del jugador.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data: { $ref: '#/components/schemas/Jugador' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/JugadorNoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    put:
+      tags: [Jugadores]
+      summary: Actualizar un jugador
+      description: |
+        RF-04 y RN-01. Es un **reemplazo total**: el cuerpo debe traer el
+        `nickname` y el `rol`. Los campos opcionales que no se envían se
+        reponen con `null` o con su valor por defecto.
+      operationId: actualizarJugador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JugadorCreate' }
+            example:
+              nickname: Faker
+              nombre_real: Lee Sang-hyeok
+              pais: Corea del Sur
+              rol: Mid
+              estado: inactivo
+      responses:
+        '200':
+          description: Jugador actualizado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: Jugador actualizado exitosamente }
+                  data: { $ref: '#/components/schemas/Jugador' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/JugadorNoEncontrado'
+        '409':
+          $ref: '#/components/responses/NicknameDuplicado'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    delete:
+      tags: [Jugadores]
+      summary: Eliminar un jugador
+      description: |
+        RF-05. Si el jugador está asignado a algún roster la operación se
+        rechaza con `409` y no se borra nada. El cliente debe quitarlo primero
+        con `DELETE /api/v1/rosters/{id}/jugadores/{id_jugador}`.
+      operationId: eliminarJugador
+      responses:
+        '204':
+          description: Jugador eliminado. Sin cuerpo de respuesta.
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/JugadorNoEncontrado'
+        '409':
+          $ref: '#/components/responses/JugadorEnRosters'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  # ==========================================================================
+  # ROSTERS
+  # ==========================================================================
+  /api/v1/rosters:
+    get:
+      tags: [Rosters]
+      summary: Listar rosters
+      description: |
+        RF-08 y RF-06. Cada roster incluye la cantidad de jugadores y de
+        titulares que contiene.
+      operationId: listarRosters
+      parameters:
+        - name: tipo
+          in: query
+          description: Filtra por tipo de roster.
+          required: false
+          schema:
+            type: string
+            enum: [Principal, Academy]
+          example: Principal
+        - name: temporada
+          in: query
+          description: Filtra por temporada. Debe ser un año de cuatro dígitos.
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}$'
+          example: '2026'
+      responses:
+        '200':
+          description: Lista de rosters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  count: { type: integer, example: 1 }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/RosterResumen' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    post:
+      tags: [Rosters]
+      summary: Crear un roster
+      description: RF-07. Si no se envía `juego`, se usa el valor por defecto.
+      operationId: crearRoster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RosterCreate' }
+            examples:
+              completo:
+                value:
+                  nombre: TL Principal
+                  juego: League of Legends
+                  tipo: Principal
+                  temporada: '2026'
+              minimo:
+                summary: El juego toma su valor por defecto
+                value:
+                  nombre: TL Academy
+                  tipo: Academy
+                  temporada: '2026'
+      responses:
+        '201':
+          description: Roster creado. Incluye la cabecera `Location`.
+          headers:
+            Location:
+              description: URL del recurso creado.
+              schema: { type: string }
+              example: /api/v1/rosters/1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: Roster creado exitosamente }
+                  data: { $ref: '#/components/schemas/Roster' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  /api/v1/rosters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdRoster'
+    get:
+      tags: [Rosters]
+      summary: Obtener el detalle de un roster
+      description: |
+        RF-09. Incluye la lista de jugadores asignados con su rol de juego y
+        su rol dentro del roster.
+      operationId: obtenerRoster
+      responses:
+        '200':
+          description: Detalle del roster con sus jugadores.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data: { $ref: '#/components/schemas/RosterDetalle' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/RosterNoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    put:
+      tags: [Rosters]
+      summary: Actualizar un roster
+      description: RF-10. Reemplazo total del recurso.
+      operationId: actualizarRoster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RosterCreate' }
+            example:
+              nombre: TL Principal
+              juego: League of Legends
+              tipo: Academy
+              temporada: '2027'
+      responses:
+        '200':
+          description: Roster actualizado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: Roster actualizado exitosamente }
+                  data: { $ref: '#/components/schemas/Roster' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/RosterNoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    delete:
+      tags: [Rosters]
+      summary: Eliminar un roster
+      description: |
+        RF-11 y RN-05. Los jugadores **no** se eliminan: solo se borran las
+        filas que los vinculaban a este roster. Un jugador que estaba solo en
+        este roster pasa a estar simplemente sin roster.
+      operationId: eliminarRoster
+      responses:
+        '204':
+          description: Roster eliminado. Sin cuerpo de respuesta.
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/RosterNoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  # ==========================================================================
+  # ASIGNACIONES
+  # ==========================================================================
+  /api/v1/rosters/{id}/jugadores:
+    parameters:
+      - $ref: '#/components/parameters/IdRoster'
+    get:
+      tags: [Asignaciones]
+      summary: Listar los jugadores de un roster
+      description: RF-09. Cada jugador incluye su rol en el roster.
+      operationId: listarJugadoresDelRoster
+      responses:
+        '200':
+          description: Jugadores asignados al roster.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  count: { type: integer, example: 2 }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/JugadorEnRoster' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/RosterNoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    post:
+      tags: [Asignaciones]
+      summary: Asignar un jugador a un roster
+      description: |
+        RF-12. Aplica las reglas de composición del roster:
+
+        * **RN-02** — si se asigna como `Titular` y ya hay 5 titulares, devuelve `409`.
+        * **RN-03** — si se asigna como `Titular` y ya hay un titular con el
+          mismo rol de juego, devuelve `409`.
+        * **RN-04** — el mismo jugador puede asignarse a otros rosters, pero no
+          dos veces al mismo.
+      operationId: asignarJugador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AsignacionCreate' }
+            example:
+              jugador_id: 1
+              rol_en_roster: Titular
+      responses:
+        '201':
+          description: Jugador asignado. Incluye la cabecera `Location`.
+          headers:
+            Location:
+              description: URL del jugador dentro del roster.
+              schema: { type: string }
+              example: /api/v1/rosters/1/jugadores/1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: Jugador asignado como Titular }
+                  data: { $ref: '#/components/schemas/Asignacion' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/RosterOJugadorNoEncontrado'
+        '409':
+          $ref: '#/components/responses/ConflictoRoster'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  /api/v1/rosters/{id}/jugadores/{id_jugador}:
+    parameters:
+        - $ref: '#/components/parameters/IdRoster'
+        - $ref: '#/components/parameters/IdJugadorRuta'
+    put:
+      tags: [Asignaciones]
+      summary: Cambiar el rol de un jugador dentro del roster
+      description: |
+        Cambia el rol entre `Titular` y `Suplente`. Las reglas RN-02 y RN-03
+        vuelven a comprobarse, porque promover a titular es tan limitante como
+        agregar un titular nuevo. El conteo **excluye al propio jugador**, para
+        que un titular pueda cambiar de rol sin contar dos veces.
+      operationId: cambiarRolEnRoster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rol_en_roster]
+              properties:
+                rol_en_roster:
+                  type: string
+                  enum: [Titular, Suplente]
+            example:
+              rol_en_roster: Titular
+      responses:
+        '200':
+          description: Rol actualizado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: Rol actualizado a Titular }
+                  data: { $ref: '#/components/schemas/Asignacion' }
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/AsignacionNoEncontrada'
+        '409':
+          $ref: '#/components/responses/ConflictoRoster'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+    delete:
+      tags: [Asignaciones]
+      summary: Quitar un jugador de un roster
+      description: |
+        RF-13. Elimina la asignación. El jugador **permanece** en el sistema
+        y queda disponible para asignarse a otros rosters.
+      operationId: quitarJugadorDelRoster
+      responses:
+        '204':
+          description: Jugador quitado del roster. Sin cuerpo de respuesta.
+        '400':
+          $ref: '#/components/responses/ErrorPeticionInvalida'
+        '404':
+          $ref: '#/components/responses/AsignacionNoEncontrada'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  # ==========================================================================
+  # AUXILIARES
+  # ==========================================================================
+  /api/v1/roles:
+    get:
+      tags: [Auxiliares]
+      summary: Listar los roles válidos
+      description: Exponer el catálogo de roles para que el cliente no tenga que adivinarlos.
+      operationId: listarRoles
+      responses:
+        '200':
+          description: Catálogo de roles.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  count: { type: integer, example: 5 }
+                  data:
+                    type: array
+                    items: { type: string }
+              example:
+                success: true
+                count: 5
+                data: [Top, Jungle, Mid, ADC, Support]
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  /api/v1/estados:
+    get:
+      tags: [Auxiliares]
+      summary: Listar los estados válidos
+      operationId: listarEstados
+      responses:
+        '200':
+          description: Catálogo de estados.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  count: { type: integer, example: 2 }
+                  data:
+                    type: array
+                    items: { type: string }
+              example:
+                success: true
+                count: 2
+                data: [activo, inactivo]
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  /api/v1/tipos-roster:
+    get:
+      tags: [Auxiliares]
+      summary: Listar los tipos de roster válidos
+      operationId: listarTiposRoster
+      responses:
+        '200':
+          description: Catálogo de tipos de roster.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  count: { type: integer, example: 2 }
+                  data:
+                    type: array
+                    items: { type: string }
+              example:
+                success: true
+                count: 2
+                data: [Principal, Academy]
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  /api/v1/health:
+    get:
+      tags: [Auxiliares]
+      summary: Verificar que la API está activa
+      description: |
+        Ejecuta `SELECT 1` contra la base de datos. Un servidor que arranca pero
+        no puede conectarse a MySQL se reporta como degradado con `503`.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: API operativa y base de datos accesible.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  status: { type: string, example: activo }
+                  version: { type: string, example: 1.0.0 }
+                  baseDeDatos: { type: string, example: conectada }
+                  latenciaMs: { type: integer, example: 3 }
+                  reglas:
+                    type: object
+                    properties:
+                      maximoTitularesPorRoster: { type: integer, example: 5 }
+                      rolesValidos:
+                        type: array
+                        items: { type: string }
+                      estadosValidos:
+                        type: array
+                        items: { type: string }
+                      tiposRosterValidos:
+                        type: array
+                        items: { type: string }
+                      rolesEnRosterValidos:
+                        type: array
+                        items: { type: string }
+                      juegoPorDefecto: { type: string, example: League of Legends }
+        '503':
+          description: La API está activa pero la base de datos no responde.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                success: false
+                status: degradado
+                baseDeDatos: sin_conexion
+                mensaje: La API está activa pero la base de datos no responde
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+# ============================================================================
+components:
+
+  parameters:
+    IdJugador:
+      name: id
+      in: path
+      required: true
+      description: Identificador del jugador.
+      schema:
+        type: integer
+        minimum: 1
+      example: 1
+
+    IdRoster:
+      name: id
+      in: path
+      required: true
+      description: Identificador del roster.
+      schema:
+        type: integer
+        minimum: 1
+      example: 1
+
+    IdJugadorRuta:
+      name: id_jugador
+      in: path
+      required: true
+      description: Identificador del jugador dentro del roster.
+      schema:
+        type: integer
+        minimum: 1
+      example: 1
+
+  schemas:
+
+    Jugador:
+      type: object
+      required: [id, nickname, rol, estado]
+      properties:
+        id:
+          type: integer
+          example: 1
+        nickname:
+          type: string
+          maxLength: 50
+          description: Apodo único del jugador (RN-01).
+          example: Faker
+        nombre_real:
+          type: string
+          nullable: true
+          maxLength: 100
+          example: Lee Sang-hyeok
+        pais:
+          type: string
+          nullable: true
+          maxLength: 60
+          example: Corea del Sur
+        rol:
+          type: string
+          enum: [Top, Jungle, Mid, ADC, Support]
+          example: Mid
+        estado:
+          type: string
+          enum: [activo, inactivo]
+          example: activo
+
+    JugadorCreate:
+      type: object
+      required: [nickname, rol]
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Faker
+        nombre_real:
+          type: string
+          nullable: true
+          maxLength: 100
+          example: Lee Sang-hyeok
+        pais:
+          type: string
+          nullable: true
+          maxLength: 60
+          example: Corea del Sur
+        rol:
+          type: string
+          enum: [Top, Jungle, Mid, ADC, Support]
+          example: Mid
+        estado:
+          type: string
+          enum: [activo, inactivo]
+          default: activo
+          example: activo
+
+    Roster:
+      type: object
+      required: [id, nombre, juego, tipo, temporada]
+      properties:
+        id: { type: integer, example: 1 }
+        nombre: { type: string, maxLength: 100, example: TL Principal }
+        juego: { type: string, maxLength: 100, example: League of Legends }
+        tipo: { type: string, enum: [Principal, Academy], example: Principal }
+        temporada:
+          type: string
+          pattern: '^\d{4}$'
+          example: '2026'
+
+    RosterCreate:
+      type: object
+      required: [nombre, tipo, temporada]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100, example: TL Principal }
+        juego:
+          type: string
+          default: League of Legends
+          example: League of Legends
+        tipo: { type: string, enum: [Principal, Academy], example: Principal }
+        temporada: { type: string, pattern: '^\d{4}$', example: '2026' }
+
+    RosterResumen:
+      allOf:
+        - $ref: '#/components/schemas/Roster'
+        - type: object
+          properties:
+            cantidadJugadores:
+              type: integer
+              description: Número total de jugadores en el roster.
+              example: 6
+            cantidadTitulares:
+              type: integer
+              description: Número de jugadores con rol Titular.
+              example: 5
+
+    JugadorEnRoster:
+      allOf:
+        - $ref: '#/components/schemas/Jugador'
+        - type: object
+          properties:
+            rol_en_roster:
+              type: string
+              nullable: true
+              enum: [Titular, Suplente]
+              description: |
+                Rol dentro del roster. Es distinto de `rol`: un Suplente de Mid
+                sigue siendo Mid en el juego, solo que no juega de titular.
+              example: Titular
+
+    RosterDetalle:
+      allOf:
+        - $ref: '#/components/schemas/Roster'
+        - type: object
+          properties:
+            jugadores:
+              type: array
+              items: { $ref: '#/components/schemas/JugadorEnRoster' }
+
+    AsignacionCreate:
+      type: object
+      required: [jugador_id, rol_en_roster]
+      properties:
+        jugador_id:
+          type: integer
+          minimum: 1
+          example: 1
+        rol_en_roster:
+          type: string
+          enum: [Titular, Suplente]
+          example: Titular
+
+    Asignacion:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        roster_id: { type: integer, example: 1 }
+        jugador_id: { type: integer, example: 1 }
+        rol_en_roster: { type: string, enum: [Titular, Suplente], example: Titular }
+        jugador: { $ref: '#/components/schemas/JugadorEnRoster' }
+
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error: { type: string, example: Bad Request }
+        message: { type: string, example: Los datos del jugador no son válidos }
+        details:
+          type: object
+          additionalProperties: true
+          description: Mapa de campo a mensaje. Solo en errores de validación.
+
+  responses:
+
+    ErrorPeticionInvalida:
+      description: |
+        `400 Bad Request`. Falta un campo obligatorio, un valor pertenece al
+        catálogo, o el id de la ruta no es un entero positivo.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Bad Request
+            message: Los datos del jugador no son válidos
+            details:
+              nickname: El nickname es obligatorio
+
+    JugadorNoEncontrado:
+      description: "`404 Not Found`. El jugador no existe."
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Not Found
+            message: No existe un jugador con el id 999
+
+    RosterNoEncontrado:
+      description: "`404 Not Found`. El roster no existe."
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Not Found
+            message: No existe un roster con el id 999
+
+    AsignacionNoEncontrada:
+      description: "`404 Not Found`. El jugador no está asignado a ese roster."
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Not Found
+            message: El jugador con el id 99 no está asignado al roster con el id 1
+
+    RosterOJugadorNoEncontrado:
+      description: "`404 Not Found`. El roster o el jugador no existen."
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Not Found
+            message: No existe un jugador con el id 999
+
+    NicknameDuplicado:
+      description: "`409 Conflict`. El nickname ya está registrado (RN-01)."
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Conflict
+            message: Ya existe un jugador registrado con ese nickname
+            details:
+              nickname: Faker
+              jugador_id: 1
+
+    JugadorEnRosters:
+      description: |
+        `409 Conflict`. No se puede eliminar un jugador que sigue asignado a
+        algún roster.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Conflict
+            message: El jugador está asignado a uno o más rosters y no puede eliminarse
+            details:
+              jugador_id: 1
+              rostersIds: [1]
+              solucion: Quita al jugador de cada roster con DELETE /rosters/{id}/jugadores/{id_jugador} e inténtalo de nuevo
+
+    ConflictoRoster:
+      description: |
+        `409 Conflict`. La asignación rompe una regla de composición del
+        roster: RN-02 (ya hay 5 titulares), RN-03 (ya hay un titular con el
+        mismo rol) o el jugador ya estaba asignado (RN-04).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            rn02:
+              summary: RN-02, máximo de titulares
+              value:
+                success: false
+                error: Conflict
+                message: El roster ya tiene el máximo de 5 titulares
+                details:
+                  roster_id: 1
+                  maximoTitulares: 5
+                  titularesActuales: 5
+                  solucion: Agrega al jugador como Suplente, o quita a un titular antes de agregarlo
+            rn03:
+              summary: RN-03, dos titulares con el mismo rol
+              value:
+                success: false
+                error: Conflict
+                message: El roster ya tiene un titular en el rol Top
+                details:
+                  roster_id: 1
+                  rol: Top
+                  jugadorActual: { id: 4, nickname: Licorice, rol: Top }
+                  jugadorNuevo: { id: 6, nickname: Aatrox, rol: Top }
+                  solucion: Agrega al jugador como Suplente, o libera el rol cambiando al titular actual
+            duplicado:
+              summary: El jugador ya está en este roster
+              value:
+                success: false
+                error: Conflict
+                message: Ese jugador ya está asignado a este roster
+                details:
+                  roster_id: 1
+                  jugador_id: 1
+                  rol_en_roster: Titular
+
+    ErrorInterno:
+      description: |
+        `500 Internal Server Error`. Fallo no previsto en el servidor. El
+        detalle real queda registrado en la consola y nunca se filtra al
+        cliente.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            success: false
+            error: Internal Server Error
+            message: Error interno del servidor

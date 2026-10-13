@@ -1,0 +1,118 @@
+### ===========================================================================
+### Meta 3.2 - REST API: Perfiles de Jugadores y Rosters
+### COLECCIÓN 0 - PREPARACIÓN
+### ===========================================================================
+### Deja la base de datos en un estado conocido y estable para que las demás
+### colecciones puedan usar ids fijos. EJECUTAR PRIMERO.
+###
+### Requisitos:
+###   1. Extensión "REST Client" (humao.rest-client) en VS Code.
+###   2. La base de datos migrada y sembrada:
+###        npx sequelize-cli db:migrate
+###        npx sequelize-cli db:seed:all
+###   3. El servidor corriendo:  npm run dev
+###
+### Cómo ejecutar: coloca el cursor sobre una petición y pulsa Ctrl+Alt+R.
+### Cada aserción client.test() reporta PASSED / FAILED en la salida.
+###
+### ESTADO ESPERADO tras ejecutar 00-preparacion.http:
+###   jugadores -> 7  (Faker, Impact, CuVee, Licorice, CoreJJ, Aatrox, Elyoya)
+###   rosters   -> 2  (TL Principal, TL Academy)
+###   roster 1  -> 5 titulares + 1 suplente  (ya está en el límite de RN-02)
+###   roster 2  -> vacío
+### ===========================================================================
+
+@baseUrl = http://localhost:3000/api/v1
+
+### ---------------------------------------------------------------------------
+### Verificar que el servidor está arriba
+### ---------------------------------------------------------------------------
+GET {{baseUrl}}/health
+
+> {%
+    client.test("[0.1] El servidor responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[0.2] El estado es 'activo'", function () {
+        client.assert(response.body.status === "activo", "Esperaba 'activo'");
+    });
+    client.test("[0.3] La base de datos está conectada", function () {
+        client.assert(response.body.baseDeDatos === "conectada", "La BD no responde");
+    });
+    client.test("[0.4] El máximo de titulares es 5 (RN-02)", function () {
+        client.assert(response.body.reglas.maximoTitularesPorRoster === 5,
+            "Esperaba 5, recibí " + response.body.reglas.maximoTitularesPorRoster);
+    });
+%}
+
+###
+
+### ---------------------------------------------------------------------------
+### Estado inicial de los jugadores
+### ---------------------------------------------------------------------------
+GET {{baseUrl}}/jugadores
+
+> {%
+    client.test("[0.5] Hay 7 jugadores iniciales", function () {
+        client.assert(response.body.count === 7,
+            "Esperaba 7 jugadores, recibí " + response.body.count);
+    });
+    client.test("[0.6] Faker existe con rol Mid", function () {
+        var faker = response.body.data.filter(function (j) { return j.nickname === "Faker"; })[0];
+        client.assert(faker !== undefined, "No se encontró a Faker");
+        client.assert(faker.rol === "Mid", "Esperaba rol Mid");
+    });
+    client.test("[0.7] CoreJJ está inactivo (para probar el filtro ?estado)", function () {
+        var corejj = response.body.data.filter(function (j) { return j.nickname === "CoreJJ"; })[0];
+        client.assert(corejj.estado === "inactivo", "Esperaba estado 'inactivo'");
+    });
+%}
+
+###
+
+### ---------------------------------------------------------------------------
+### Estado inicial de los rosters
+### ---------------------------------------------------------------------------
+GET {{baseUrl}}/rosters
+
+> {%
+    client.test("[0.8] Hay 2 rosters iniciales", function () {
+        client.assert(response.body.count === 2,
+            "Esperaba 2 rosters, recibí " + response.body.count);
+    });
+    client.test("[0.9] TL Principal tiene 5 titulares (límite de RN-02)", function () {
+        var tl = response.body.data.filter(function (r) { return r.nombre === "TL Principal"; })[0];
+        client.assert(tl.cantidadTitulares === 5,
+            "Esperaba 5 titulares, recibí " + tl.cantidadTitulares);
+        client.assert(tl.cantidadJugadores === 6,
+            "Esperaba 6 jugadores, recibí " + tl.cantidadJugadores);
+    });
+%}
+
+###
+
+### ---------------------------------------------------------------------------
+### El roster 1 (TL Principal) está en el límite de RN-02:
+### 5 titulares ya asignados. Cualquier 6º titular debe recibir 409.
+### ---------------------------------------------------------------------------
+GET {{baseUrl}}/rosters/1/jugadores
+
+> {%
+    client.test("[0.10] El roster 1 lista 6 jugadores", function () {
+        client.assert(response.body.count === 6, "Esperaba 6, recibí " + response.body.count);
+    });
+    client.test("[0.11] Hay 5 con rol Titular", function () {
+        var titulares = response.body.data.filter(function (j) {
+            return j.rol_en_roster === "Titular";
+        });
+        client.assert(titulares.length === 5,
+            "Esperaba 5 titulares, recibí " + titulares.length);
+    });
+    client.test("[0.12] Hay 1 con rol Suplente", function () {
+        var suplentes = response.body.data.filter(function (j) {
+            return j.rol_en_roster === "Suplente";
+        });
+        client.assert(suplentes.length === 1,
+            "Esperaba 1 suplente, recibí " + suplentes.length);
+    });
+%}

@@ -1,0 +1,8 @@
+// Indica a sequelize-cli dónde está la configuración de la base de datos.
+// Se usa un archivo .cjs porque sequelize-cli lo carga con require(), y el
+// package.json del proyecto declara "type": "module".
+const path = require('path');
+
+module.exports = {
+  config: path.resolve('config', 'config.cjs'),
+};

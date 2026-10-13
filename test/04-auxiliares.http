@@ -1,0 +1,366 @@
+### ===========================================================================
+### Meta 3.2 - COLECCIÓN 4 - ENDPOINTS AUXILIARES Y CASOS LÍMITE
+### ===========================================================================
+### Ejecutar DESPUÉS de 00-preparacion.http.
+###
+###   1-4    Catálogos válidos (GET /roles, /estados, /tipos-roster)
+###   5-8    Health check
+###   9-13   Conflictos que combinan reglas de negocio
+###   14-17  Comportamiento del PUT como reemplazo total
+###   18-21  Formato de error y códigos poco frecuentes
+### ===========================================================================
+
+@baseUrl = http://localhost:3000/api/v1
+
+# Id del jugador de prueba creado en el escenario [14] de esta misma colección.
+@jugadorReemplazo =
+
+### ===========================================================================
+### CATÁLOGOS VÁLIDOS
+### ===========================================================================
+
+### [1] GET /roles  ->  200 OK
+GET {{baseUrl}}/roles
+Accept: application/json
+
+> {%
+    client.test("[1] GET /roles responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[1b] Devuelve los 5 roles del enunciado", function () {
+        var roles = response.body.data;
+        ["Top", "Jungle", "Mid", "ADC", "Support"].forEach(function (r) {
+            client.assert(roles.indexOf(r) !== -1, "Falta el rol " + r);
+        });
+        client.assert(roles.length === 5, "Esperaba 5 roles, recibí " + roles.length);
+    });
+%}
+
+###
+
+### [2] GET /estados  ->  200 OK
+GET {{baseUrl}}/estados
+Accept: application/json
+
+> {%
+    client.test("[2] GET /estados responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[2b] Devuelve activo e inactivo", function () {
+        var e = response.body.data;
+        client.assert(e.indexOf("activo") !== -1, "Falta 'activo'");
+        client.assert(e.indexOf("inactivo") !== -1, "Falta 'inactivo'");
+        client.assert(e.length === 2, "Esperaba 2 estados, recibí " + e.length);
+    });
+%}
+
+###
+
+### [3] GET /tipos-roster  ->  200 OK
+GET {{baseUrl}}/tipos-roster
+Accept: application/json
+
+> {%
+    client.test("[3] GET /tipos-roster responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[3b] Devuelve Principal y Academy", function () {
+        var t = response.body.data;
+        client.assert(t.indexOf("Principal") !== -1, "Falta 'Principal'");
+        client.assert(t.indexOf("Academy") !== -1, "Falta 'Academy'");
+    });
+%}
+
+###
+
+### [4] Los catálogos coinciden con lo que acepta la API
+GET {{baseUrl}}/roles
+Accept: application/json
+
+> {%
+    client.test("[4] El catálogo documenta exactamente lo que valida el backend", function () {
+        // Un jugador con este rol debe aceptarse; es la comprobación cruzada
+        // entre el catálogo y la validación real.
+        client.assert(response.body.count === 5, "El catálogo cambió");
+    });
+%}
+
+###
+
+### ===========================================================================
+### HEALTH CHECK
+### ===========================================================================
+
+### [5] GET /health  ->  200 OK
+GET {{baseUrl}}/health
+Accept: application/json
+
+> {%
+    client.test("[5] GET /health responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[5b] El estado es 'activo'", function () {
+        client.assert(response.body.status === "activo",
+            "Esperaba 'activo', recibí " + response.body.status);
+    });
+    client.test("[5c] La base de datos está conectada", function () {
+        client.assert(response.body.baseDeDatos === "conectada",
+            "Esperaba 'conectada', recibí " + response.body.baseDeDatos);
+    });
+%}
+
+###
+
+### [6] El health check expone las reglas de negocio
+GET {{baseUrl}}/health
+Accept: application/json
+
+> {%
+    client.test("[6] Publica el máximo de titulares (RN-02)", function () {
+        client.assert(response.body.reglas.maximoTitularesPorRoster === 5,
+            "Esperaba 5, recibí " + response.body.reglas.maximoTitularesPorRoster);
+    });
+    client.test("[6b] Publica el juego por defecto", function () {
+        client.assert(response.body.reglas.juegoPorDefecto === "League of Legends",
+            "Esperaba 'League of Legends'");
+    });
+%}
+
+###
+
+### [7] El health check responde rápido (RNF-03: < 0.5 s)
+GET {{baseUrl}}/health
+Accept: application/json
+
+> {%
+    client.test("[7] RNF-03: la respuesta tarda menos de 500 ms", function () {
+        var ms = response.body.latenciaMs;
+        client.assert(ms < 500, "La latencia fue de " + ms + " ms, el máximo es 500");
+        client.log("Latencia: " + ms + " ms");
+    });
+%}
+
+###
+
+### [8] GET /health es idempotente
+GET {{baseUrl}}/health
+Accept: application/json
+
+> {%
+    client.test("[8] Dos llamadas seguidas dan el mismo resultado", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+        client.assert(response.body.version === "1.0.0",
+            "Esperaba versión 1.0.0, recibí " + response.body.version);
+    });
+%}
+
+###
+
+### ===========================================================================
+### CONFLICTOS QUE COMBINAN REGLAS DE NEGOCIO
+### ===========================================================================
+
+### [9] No se puede eliminar un jugador que está en un roster  ->  409
+### Faker (id 1) está en los rosters 1 y 2.
+DELETE {{baseUrl}}/jugadores/1
+Accept: application/json
+
+> {%
+    client.test("[9] DELETE de un jugador con asignaciones responde 409", function () {
+        client.assert(response.status === 409, "Esperaba 409, recibí " + response.status);
+    });
+    client.test("[9b] El mensaje explica cómo resolverlo", function () {
+        client.assert(response.body.message.indexOf("roster") !== -1,
+            "El mensaje debe mencionar los rosters, recibí: " + response.body.message);
+        client.assert(response.body.details.solucion !== undefined,
+            "details debería indicar la solución");
+    });
+    client.test("[9c] Indica en qué rosters está el jugador", function () {
+        var rosters = response.body.details.rostersIds;
+        client.assert(Array.isArray(rosters), "details.rostersIds debería ser un arreglo");
+        client.assert(rosters.length >= 1, "Debería listar al menos un roster");
+    });
+%}
+
+###
+
+### [10] El jugador NO se borró (la operación fue atómica)
+GET {{baseUrl}}/jugadores/1
+Accept: application/json
+
+> {%
+    client.test("[10] Tras el 409 el jugador sigue en el sistema", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+        client.assert(response.body.data.nickname === "Faker", "Esperaba Faker");
+    });
+%}
+
+###
+
+### [11] Quitado de todos sus rosters, el jugador ya se puede eliminar
+DELETE {{baseUrl}}/rosters/1/jugadores/1
+Accept: application/json
+
+> {%
+    client.test("[11] Se quita a Faker del roster 1", function () {
+        client.assert(response.status === 204, "Esperaba 204, recibí " + response.status);
+    });
+%}
+
+###
+
+### [12] DELETE /rosters/2/jugadores/1  ->  204
+DELETE {{baseUrl}}/rosters/2/jugadores/1
+Accept: application/json
+
+> {%
+    client.test("[12] Se quita a Faker del roster 2", function () {
+        client.assert(response.status === 204, "Esperaba 204, recibí " + response.status);
+    });
+%}
+
+###
+
+### [13] Ahora sí se puede eliminar
+DELETE {{baseUrl}}/jugadores/1
+Accept: application/json
+
+> {%
+    client.test("[13] Sin asignaciones, DELETE responde 204", function () {
+        client.assert(response.status === 204, "Esperaba 204, recibí " + response.status);
+    });
+%}
+
+###
+
+### ===========================================================================
+### EL PUT ES UN REEMPLAZO TOTAL
+### ===========================================================================
+
+### [14] PUT con todos los campos  ->  200
+POST {{baseUrl}}/jugadores
+Content-Type: application/json
+
+{
+  "nickname": "PruebaReemplazo",
+  "nombre_real": "Nombre Completo",
+  "pais": "Argentina",
+  "rol": "Top",
+  "estado": "activo"
+}
+
+> {%
+    client.test("[14] Se crea el jugador de prueba", function () {
+        client.assert(response.status === 201, "Esperaba 201, recibí " + response.status);
+        client.global.set("jugadorReemplazo", response.body.data.id);
+        client.log("Jugador de prueba con id " + response.body.data.id);
+    });
+%}
+
+###
+
+### [15] PUT omitiendo los campos opcionales  ->  se reinician a null
+PUT {{baseUrl}}/jugadores/{{jugadorReemplazo}}
+Content-Type: application/json
+
+{
+  "nickname": "PruebaReemplazo",
+  "rol": "Top"
+}
+
+> {%
+    client.test("[15] PUT responde 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, recibí " + response.status);
+    });
+    client.test("[15b] Los campos omitidos vuelven a su valor por defecto", function () {
+        var d = response.body.data;
+        client.assert(d.nombre_real === null,
+            "nombre_real debía reiniciarse a null, recibí " + JSON.stringify(d.nombre_real));
+        client.assert(d.pais === null, "pais debía reiniciarse a null");
+        client.assert(d.estado === "activo", "estado debía tomar su default 'activo'");
+    });
+%}
+
+###
+
+### [16] PUT sin nickname  ->  400 (reemplazo total exige los obligatorios)
+PUT {{baseUrl}}/jugadores/{{jugadorReemplazo}}
+Content-Type: application/json
+
+{
+  "rol": "Support"
+}
+
+> {%
+    client.test("[16] PUT sin nickname responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
+
+###
+
+### [17] DELETE del jugador de prueba  ->  204
+DELETE {{baseUrl}}/jugadores/{{jugadorReemplazo}}
+Accept: application/json
+
+> {%
+    client.test("[17] Limpieza del jugador de prueba", function () {
+        client.assert(response.status === 204, "Esperaba 204, recibí " + response.status);
+    });
+%}
+
+###
+
+### ===========================================================================
+### FORMATO DE ERROR Y CASOS POCO FRECUENTES
+### ===========================================================================
+
+### [18] Todas las respuestas de error tienen la misma forma
+GET {{baseUrl}}/jugadores/9999
+Accept: application/json
+
+> {%
+    client.test("[18] El cuerpo de error tiene siempre la misma forma", function () {
+        client.assert(response.body.success === false, "success debe ser false");
+        client.assert(typeof response.body.error === "string", "falta error");
+        client.assert(typeof response.body.message === "string", "falta message");
+        client.assert(response.body.data === undefined, "un error no debe traer data");
+    });
+%}
+
+###
+
+### [19] id 0  ->  400 (no es un entero positivo)
+GET {{baseUrl}}/jugadores/0
+Accept: application/json
+
+> {%
+    client.test("[19] El id 0 responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
+
+###
+
+### [20] id negativo  ->  400
+GET {{baseUrl}}/jugadores/-5
+Accept: application/json
+
+> {%
+    client.test("[20] Un id negativo responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
+
+###
+
+### [21] id con letras pegadas  ->  400
+### `12abc` NO debe aceptarse como 12: es un id mal formado, no el id 12.
+GET {{baseUrl}}/jugadores/12abc
+Accept: application/json
+
+> {%
+    client.test("[21] Un id con letras pegadas responde 400", function () {
+        client.assert(response.status === 400, "Esperaba 400, recibí " + response.status);
+    });
+%}
